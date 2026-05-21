@@ -65,5 +65,23 @@ echo "Installed $BINARY $TAG to $INSTALL_DIR/$BINARY"
 
 case ":$PATH:" in
   *":$INSTALL_DIR:"*) ;;
-  *) echo "Note: $INSTALL_DIR is not in your PATH — add it to your shell config." ;;
+  *)
+    SHELL_NAME=$(basename "${SHELL:-}")
+    case "$SHELL_NAME" in
+      zsh)  PROFILE="~/.zshrc" ;;
+      bash) PROFILE="~/.bashrc (or ~/.bash_profile on macOS)" ;;
+      fish) PROFILE="~/.config/fish/config.fish" ;;
+      *)    PROFILE="your shell profile" ;;
+    esac
+    echo
+    echo "Note: $INSTALL_DIR is not in your PATH."
+    if [ "$SHELL_NAME" = "fish" ]; then
+      echo "Add this line to $PROFILE:"
+      echo "  set -gx PATH $INSTALL_DIR \$PATH"
+    else
+      echo "Add this line to $PROFILE:"
+      echo "  export PATH=\"$INSTALL_DIR:\$PATH\""
+    fi
+    echo "Then restart your shell or run: source $PROFILE"
+    ;;
 esac
