@@ -33,6 +33,15 @@ if [ -z "$TAG" ]; then
   exit 1
 fi
 
+EXISTING_BIN="$INSTALL_DIR/$BINARY"
+if [ -x "$EXISTING_BIN" ]; then
+  EXISTING_VERSION=$("$EXISTING_BIN" --version 2>/dev/null | awk 'NR==1 {print $NF}')
+  if [ -n "$EXISTING_VERSION" ] && [ "v$EXISTING_VERSION" = "$TAG" ]; then
+    echo "yap $TAG is already installed at $EXISTING_BIN."
+    exit 0
+  fi
+fi
+
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
