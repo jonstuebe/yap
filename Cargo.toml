@@ -1,6 +1,6 @@
 [package]
 name = "yap"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "pbpaste, but it talks. Speak macOS clipboard text with Kokoro TTS."
 license = "GPL-3.0-or-later"
@@ -17,6 +17,8 @@ tokio = { version = "1", features = ["rt", "macros"] }
 dirs = "5"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
 indicatif = "0.17"
+tar = "0.4"
+flate2 = "1"
 
 [profile.release]
 lto = "thin"

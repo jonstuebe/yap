@@ -31,11 +31,27 @@ jobs:
       - name: Package release artifacts
         run: |
           mkdir -p dist
+
           cp target/aarch64-apple-darwin/release/yap dist/yap
-          cd dist
-          tar czf yap-aarch64-apple-darwin.tar.gz yap
-          shasum -a 256 yap-aarch64-apple-darwin.tar.gz \
-            > yap-aarch64-apple-darwin.tar.gz.sha256
+          (cd dist && tar czf yap-aarch64-apple-darwin.tar.gz yap \
+            && shasum -a 256 yap-aarch64-apple-darwin.tar.gz \
+                 > yap-aarch64-apple-darwin.tar.gz.sha256)
+
+          # Bundle the espeak-ng-data dir the binary needs at runtime. The
+          # build embeds an absolute path to its compile-time copy, which
+          # doesn't exist on the user's machine — the binary downloads this
+          # tarball on first run and points espeak-rs at it via
+          # PIPER_ESPEAKNG_DATA_DIRECTORY.
+          ESPEAK_SRC=$(find target/aarch64-apple-darwin/release/build \
+            -type d -name espeak-ng-data -path '*/share/*' | head -1)
+          if [ -z "$ESPEAK_SRC" ]; then
+            echo "Error: espeak-ng-data not found in build output" >&2
+            exit 1
+          fi
+          cp -R "$ESPEAK_SRC" dist/espeak-ng-data
+          (cd dist && tar czf espeak-ng-data.tar.gz espeak-ng-data \
+            && shasum -a 256 espeak-ng-data.tar.gz \
+                 > espeak-ng-data.tar.gz.sha256)
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -43,4 +59,6 @@ jobs:
           files: |
             dist/yap-aarch64-apple-darwin.tar.gz
             dist/yap-aarch64-apple-darwin.tar.gz.sha256
+            dist/espeak-ng-data.tar.gz
+            dist/espeak-ng-data.tar.gz.sha256
           generate_release_notes: true

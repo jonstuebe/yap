@@ -36,6 +36,17 @@ fn main() -> Result<()> {
         }
         return Err(e);
     }
+
+    // espeak-rs hardcodes the build-time data path; point it at our cache
+    // so it works on machines other than the one that built the binary.
+    // Don't override if the user has set their own (e.g. system espeak-ng).
+    if std::env::var_os("PIPER_ESPEAKNG_DATA_DIRECTORY").is_none()
+        && let Ok(parent) = assets::espeak_data_parent()
+    {
+        // SAFETY: called before any threads are spawned.
+        unsafe { std::env::set_var("PIPER_ESPEAKNG_DATA_DIRECTORY", parent) };
+    }
+
     let synth = synth::Synth::load()?;
 
     if args.list_voices {

@@ -9,24 +9,71 @@ use crate::cancel;
 
 const MODEL_URL: &str = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx";
 const VOICES_URL: &str = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin";
+const ESPEAK_DATA_URL: &str = concat!(
+    "https://github.com/jonstuebe/yap/releases/download/v",
+    env!("CARGO_PKG_VERSION"),
+    "/espeak-ng-data.tar.gz"
+);
+const ESPEAK_DATA_DIR_NAME: &str = "espeak-ng-data";
 
-pub fn paths() -> Result<(PathBuf, PathBuf)> {
+pub fn base_dir() -> Result<PathBuf> {
     let base = dirs::data_dir()
         .context("could not locate user data dir")?
         .join("yap");
     std::fs::create_dir_all(&base).with_context(|| format!("creating {}", base.display()))?;
+    Ok(base)
+}
+
+pub fn paths() -> Result<(PathBuf, PathBuf)> {
+    let base = base_dir()?;
     Ok((base.join("kokoro-v1.0.onnx"), base.join("voices-v1.0.bin")))
+}
+
+pub fn espeak_data_parent() -> Result<PathBuf> {
+    base_dir()
+}
+
+enum AssetKind {
+    File(PathBuf),
+    Tarball { extract_to: PathBuf },
+}
+
+struct Asset {
+    name: &'static str,
+    url: &'static str,
+    kind: AssetKind,
 }
 
 pub fn ensure() -> Result<()> {
     let (model_path, voices_path) = paths()?;
-    let mut missing: Vec<(&'static str, &'static str, PathBuf)> = Vec::new();
+    let espeak_parent = espeak_data_parent()?;
+
+    let mut missing: Vec<Asset> = Vec::new();
     if !model_path.exists() {
-        missing.push(("kokoro-v1.0.onnx", MODEL_URL, model_path));
+        missing.push(Asset {
+            name: "kokoro-v1.0.onnx",
+            url: MODEL_URL,
+            kind: AssetKind::File(model_path),
+        });
     }
     if !voices_path.exists() {
-        missing.push(("voices-v1.0.bin", VOICES_URL, voices_path));
+        missing.push(Asset {
+            name: "voices-v1.0.bin",
+            url: VOICES_URL,
+            kind: AssetKind::File(voices_path),
+        });
     }
+    let espeak_marker = espeak_parent.join(ESPEAK_DATA_DIR_NAME).join("phontab");
+    if !espeak_marker.exists() {
+        missing.push(Asset {
+            name: "espeak-ng-data.tar.gz",
+            url: ESPEAK_DATA_URL,
+            kind: AssetKind::Tarball {
+                extract_to: espeak_parent,
+            },
+        });
+    }
+
     if missing.is_empty() {
         return Ok(());
     }
@@ -36,23 +83,28 @@ pub fn ensure() -> Result<()> {
         .build()
         .context("building http client")?;
 
-    let mut assets: Vec<(&'static str, &'static str, PathBuf, Option<u64>)> =
-        Vec::with_capacity(missing.len());
-    for (name, url, path) in missing {
+    let mut sized: Vec<(Asset, Option<u64>)> = Vec::with_capacity(missing.len());
+    for asset in missing {
         let size = client
-            .head(url)
+            .head(asset.url)
             .send()
-            .with_context(|| format!("HEAD {url}"))?
+            .with_context(|| format!("HEAD {}", asset.url))?
             .content_length();
-        assets.push((name, url, path, size));
+        sized.push((asset, size));
     }
 
-    let total_known: u64 = assets.iter().filter_map(|(_, _, _, s)| *s).sum();
+    let total_known: u64 = sized.iter().filter_map(|(_, s)| *s).sum();
 
-    println!("yap needs to download the Kokoro TTS model on first run:");
-    for (name, _, path, size) in &assets {
+    println!("yap needs to download a few things on first run:");
+    for (asset, size) in &sized {
         let size_str = size.map(human_bytes).unwrap_or_else(|| "?".into());
-        println!("  • {name} ({size_str}) → {}", path.display());
+        let dest = match &asset.kind {
+            AssetKind::File(p) => p.display().to_string(),
+            AssetKind::Tarball { extract_to, .. } => {
+                format!("{}/ (extracted)", extract_to.display())
+            }
+        };
+        println!("  • {} ({size_str}) → {dest}", asset.name);
     }
     if total_known > 0 {
         println!("  total: {} on disk", human_bytes(total_known));
@@ -72,8 +124,15 @@ pub fn ensure() -> Result<()> {
         anyhow::bail!("aborted before download");
     }
 
-    for (name, url, path, size) in assets {
-        download_with_progress(name, url, &path, size, &client)?;
+    for (asset, size) in sized {
+        match asset.kind {
+            AssetKind::File(path) => {
+                download_to_file(asset.name, asset.url, &path, size, &client)?;
+            }
+            AssetKind::Tarball { extract_to } => {
+                download_and_extract_tarball(asset.name, asset.url, &extract_to, size, &client)?;
+            }
+        }
         if cancel::cancelled() {
             anyhow::bail!("download cancelled");
         }
@@ -104,7 +163,7 @@ impl Drop for TempFile {
     }
 }
 
-fn download_with_progress(
+fn download_to_file(
     name: &str,
     url: &str,
     path: &Path,
@@ -112,7 +171,6 @@ fn download_with_progress(
     client: &reqwest::blocking::Client,
 ) -> Result<()> {
     let tmp = TempFile::new(path.with_extension("download"));
-
     {
         let cleanup = tmp.path.clone();
         cancel::on_cancel(move || {
@@ -120,6 +178,58 @@ fn download_with_progress(
         });
     }
 
+    let file = File::create(&tmp.path)
+        .with_context(|| format!("creating {}", tmp.path.display()))?;
+    stream_download(name, url, expected, client, BufWriter::new(file))?;
+
+    std::fs::rename(&tmp.path, path)
+        .with_context(|| format!("renaming {} to {}", tmp.path.display(), path.display()))?;
+    tmp.commit();
+    Ok(())
+}
+
+fn download_and_extract_tarball(
+    name: &str,
+    url: &str,
+    extract_to: &Path,
+    expected: Option<u64>,
+    client: &reqwest::blocking::Client,
+) -> Result<()> {
+    let tmp_path = extract_to.join(format!(".{name}.download"));
+    let tmp = TempFile::new(tmp_path);
+    {
+        let cleanup = tmp.path.clone();
+        cancel::on_cancel(move || {
+            let _ = std::fs::remove_file(&cleanup);
+        });
+    }
+
+    std::fs::create_dir_all(extract_to)
+        .with_context(|| format!("creating {}", extract_to.display()))?;
+
+    let file = File::create(&tmp.path)
+        .with_context(|| format!("creating {}", tmp.path.display()))?;
+    stream_download(name, url, expected, client, BufWriter::new(file))?;
+
+    let reader = File::open(&tmp.path)
+        .with_context(|| format!("opening {} for extract", tmp.path.display()))?;
+    let gz = flate2::read::GzDecoder::new(reader);
+    let mut archive = tar::Archive::new(gz);
+    archive
+        .unpack(extract_to)
+        .with_context(|| format!("extracting {} to {}", name, extract_to.display()))?;
+
+    drop(tmp); // removes the tarball
+    Ok(())
+}
+
+fn stream_download<W: Write>(
+    name: &str,
+    url: &str,
+    expected: Option<u64>,
+    client: &reqwest::blocking::Client,
+    mut sink: W,
+) -> Result<()> {
     let mut resp = client
         .get(url)
         .send()
@@ -148,9 +258,6 @@ fn download_with_progress(
     };
     pb.set_message(name.to_string());
 
-    let mut file = BufWriter::new(
-        File::create(&tmp.path).with_context(|| format!("creating {}", tmp.path.display()))?,
-    );
     let mut buf = [0u8; 64 * 1024];
     loop {
         if cancel::cancelled() {
@@ -161,15 +268,11 @@ fn download_with_progress(
         if n == 0 {
             break;
         }
-        file.write_all(&buf[..n]).context("writing to disk")?;
+        sink.write_all(&buf[..n]).context("writing to disk")?;
         pb.inc(n as u64);
     }
-    file.flush().context("flushing file")?;
-    drop(file);
-    std::fs::rename(&tmp.path, path)
-        .with_context(|| format!("renaming {} to {}", tmp.path.display(), path.display()))?;
+    sink.flush().context("flushing")?;
     pb.finish_with_message(format!("{name} done"));
-    tmp.commit();
     Ok(())
 }
 
