@@ -1,8 +1,6 @@
-# Python
-__pycache__/
-*.py[cod]
-*.egg-info/
-.venv/
+# Rust
+target/
 
-# Kokoro model files (downloaded separately — see README)
+# Kokoro model files (downloaded on first run by kokoros)
 models/
+
