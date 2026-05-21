@@ -1,6 +1,7 @@
 use anyhow::{Context, Result, anyhow};
 use kokoros::tts::koko::TTSKoko;
-use std::path::PathBuf;
+
+use crate::assets;
 
 pub const SAMPLE_RATE: u32 = 24_000;
 
@@ -10,7 +11,7 @@ pub struct Synth {
 
 impl Synth {
     pub fn load() -> Result<Self> {
-        let (model_path, voices_path) = model_paths()?;
+        let (model_path, voices_path) = assets::paths()?;
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -30,15 +31,4 @@ impl Synth {
     pub fn voices(&self) -> Vec<String> {
         self.tts.get_available_voices()
     }
-}
-
-fn model_paths() -> Result<(PathBuf, PathBuf)> {
-    let base = dirs::data_dir()
-        .context("could not locate user data dir")?
-        .join("yap");
-    std::fs::create_dir_all(&base).with_context(|| format!("creating {}", base.display()))?;
-    Ok((
-        base.join("kokoro-v1.0.onnx"),
-        base.join("voices-v1.0.bin"),
-    ))
 }

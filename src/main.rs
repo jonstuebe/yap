@@ -1,15 +1,15 @@
+mod assets;
+mod cancel;
 mod chunk;
 mod clipboard;
 mod play;
 mod spinner;
 mod synth;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::Parser;
 use crossbeam_channel::bounded;
 use std::io::{IsTerminal, Write};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 
@@ -27,8 +27,15 @@ struct Args {
 }
 
 fn main() -> Result<()> {
+    cancel::install()?;
     let args = Args::parse();
 
+    if let Err(e) = assets::ensure() {
+        if cancel::cancelled() {
+            std::process::exit(130);
+        }
+        return Err(e);
+    }
     let synth = synth::Synth::load()?;
 
     if args.list_voices {
@@ -58,34 +65,27 @@ fn run(synth: synth::Synth, chunks: Vec<String>, args: Args) -> Result<bool> {
     let total = chunks.len();
     let player = play::Player::new()?;
     let (tx, rx) = bounded::<(usize, Vec<f32>)>(2);
-    let cancel = Arc::new(AtomicBool::new(false));
 
     {
-        let cancel = cancel.clone();
         let sink = player.sink();
-        ctrlc::set_handler(move || {
-            cancel.store(true, Ordering::SeqCst);
-            sink.stop();
-        })
-        .context("installing ctrl-c handler")?;
+        cancel::on_cancel(move || sink.stop());
     }
 
     let producer = {
-        let cancel = cancel.clone();
         let voice = args.voice.clone();
         let lang = args.lang.clone();
         let speed = args.speed;
         thread::spawn(move || -> Result<()> {
             for (i, chunk) in chunks.into_iter().enumerate() {
-                if cancel.load(Ordering::SeqCst) {
+                if cancel::cancelled() {
                     break;
                 }
                 let samples = synth.synthesize(&chunk, &voice, speed, &lang)?;
-                if cancel.load(Ordering::SeqCst) {
+                if cancel::cancelled() {
                     break;
                 }
                 let mut pending = Some((i, samples));
-                while !cancel.load(Ordering::SeqCst) {
+                while !cancel::cancelled() {
                     match tx.send_timeout(pending.take().unwrap(), Duration::from_millis(200)) {
                         Ok(()) => break,
                         Err(crossbeam_channel::SendTimeoutError::Timeout(item)) => {
@@ -113,7 +113,7 @@ fn run(synth: synth::Synth, chunks: Vec<String>, args: Args) -> Result<bool> {
     };
 
     while let Some((i, samples)) = item.take() {
-        if cancel.load(Ordering::SeqCst) {
+        if cancel::cancelled() {
             break;
         }
         if tty {
@@ -122,7 +122,7 @@ fn run(synth: synth::Synth, chunks: Vec<String>, args: Args) -> Result<bool> {
             let _ = err.flush();
         }
         player.play_blocking(samples, synth::SAMPLE_RATE);
-        if cancel.load(Ordering::SeqCst) {
+        if cancel::cancelled() {
             break;
         }
         item = rx.recv().ok();
@@ -134,12 +134,11 @@ fn run(synth: synth::Synth, chunks: Vec<String>, args: Args) -> Result<bool> {
         let _ = err.flush();
     }
 
-    // Drain anything the producer queued after we stopped consuming, so it can exit.
     while rx.try_recv().is_ok() {}
     drop(rx);
     if let Err(e) = producer.join().unwrap_or(Ok(())) {
         return Err(e);
     }
 
-    Ok(cancel.load(Ordering::SeqCst))
+    Ok(cancel::cancelled())
 }
