@@ -1,0 +1,21 @@
+[package]
+name = "yap"
+version = "0.1.0"
+edition = "2024"
+description = "pbpaste, but it talks. Speak macOS clipboard text with Kokoro TTS."
+license = "GPL-3.0-or-later"
+
+[dependencies]
+kokoros = { git = "https://github.com/lucasjinreal/Kokoros.git" }
+clap = { version = "4", features = ["derive"] }
+arboard = "3"
+rodio = { version = "0.20", default-features = false }
+crossbeam-channel = "0.5"
+ctrlc = "3"
+anyhow = "1"
+tokio = { version = "1", features = ["rt", "macros"] }
+dirs = "5"
+
+[profile.release]
+lto = "thin"
+strip = "symbols"
