@@ -51,6 +51,14 @@ yap --list-voices
 | `--lang`        | `en-us`    | Language code         |
 | `--list-voices` | —          | Print voices and exit |
 
+### Update
+
+```sh
+yap update
+```
+
+Re-runs the installer to fetch the latest release, replacing the binary in the same directory it's currently installed in.
+
 ## How it works
 
 1. Reads the clipboard via [`arboard`](https://github.com/1Password/arboard) (with a `pbpaste` fallback).

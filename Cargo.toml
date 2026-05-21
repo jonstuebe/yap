@@ -1,6 +1,6 @@
 [package]
 name = "yap"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 description = "pbpaste, but it talks. Speak macOS clipboard text with Kokoro TTS."
 license = "GPL-3.0-or-later"
