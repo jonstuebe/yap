@@ -24,6 +24,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Build release binary
+        env:
+          CMAKE_POLICY_VERSION_MINIMUM: "3.5"
         run: cargo build --release --target aarch64-apple-darwin
 
       - name: Package release artifacts
