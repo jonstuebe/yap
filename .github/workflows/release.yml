@@ -1,0 +1,44 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install CMake
+        run: brew install cmake
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build release binary
+        run: cargo build --release --target aarch64-apple-darwin
+
+      - name: Package release artifacts
+        run: |
+          mkdir -p dist
+          cp target/aarch64-apple-darwin/release/yap dist/yap
+          cd dist
+          tar czf yap-aarch64-apple-darwin.tar.gz yap
+          shasum -a 256 yap-aarch64-apple-darwin.tar.gz \
+            > yap-aarch64-apple-darwin.tar.gz.sha256
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/yap-aarch64-apple-darwin.tar.gz
+            dist/yap-aarch64-apple-darwin.tar.gz.sha256
+          generate_release_notes: true

@@ -6,16 +6,26 @@ Synthesis streams chunk-by-chunk, so audio starts playing as soon as the first s
 
 ## Install
 
+Apple Silicon macOS only.
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/jonstuebe/yap/main/install.sh | sh
+```
+
+Installs to `/usr/local/bin/yap` (falls back to `~/.local/bin` if not writable). Override the install location with `YAP_INSTALL_DIR=...`.
+
+On first run, yap downloads the Kokoro model files (~340MB) to `~/Library/Application Support/yap/`.
+
+> The release binary is unsigned. The installer downloads via `curl`, which doesn't set the Gatekeeper quarantine bit, so the binary runs without prompts. If you instead download the tarball from the GitHub Releases page in a browser, run `xattr -c /usr/local/bin/yap` after installing to clear the quarantine attribute.
+
 ### From source
 
-Requires Rust (1.93+) and CMake. On macOS:
+Requires Rust (1.93+) and CMake:
 
 ```sh
 brew install cmake
 cargo install --git https://github.com/jonstuebe/yap.git
 ```
-
-That puts a `yap` binary on your `PATH`. On first run, yap downloads the Kokoro model files (~340MB) to `~/Library/Application Support/yap/`.
 
 ## Usage
 
