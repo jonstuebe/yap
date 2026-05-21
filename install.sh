@@ -11,9 +11,10 @@ if [ "$(uname -s)" != "Darwin" ] || [ "$(uname -m)" != "arm64" ]; then
   exit 1
 fi
 
+INSTALL_DIR_EXPLICIT="${YAP_INSTALL_DIR:-}"
 INSTALL_DIR="${YAP_INSTALL_DIR:-/usr/local/bin}"
 if ! mkdir -p "$INSTALL_DIR" 2>/dev/null || [ ! -w "$INSTALL_DIR" ]; then
-  if mkdir -p "$HOME/.local/bin" 2>/dev/null && [ -w "$HOME/.local/bin" ]; then
+  if [ -z "$INSTALL_DIR_EXPLICIT" ] && mkdir -p "$HOME/.local/bin" 2>/dev/null && [ -w "$HOME/.local/bin" ]; then
     INSTALL_DIR="$HOME/.local/bin"
     echo "Installing to $INSTALL_DIR (no write access to /usr/local/bin)."
   else

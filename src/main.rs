@@ -5,16 +5,17 @@ mod clipboard;
 mod play;
 mod spinner;
 mod synth;
+mod update;
 
 use anyhow::Result;
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use crossbeam_channel::bounded;
 use std::io::{IsTerminal, Write};
 use std::thread;
 use std::time::Duration;
 
 #[derive(Parser, Debug)]
-#[command(about = "Speak clipboard text with Kokoro TTS.")]
+#[command(about = "Speak clipboard text with Kokoro TTS.", version)]
 struct Args {
     #[arg(long, default_value = "af_heart")]
     voice: String,
@@ -24,11 +25,24 @@ struct Args {
     lang: String,
     #[arg(long)]
     list_voices: bool,
+
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+#[derive(Subcommand, Debug)]
+enum Command {
+    /// Update yap to the latest release.
+    Update,
 }
 
 fn main() -> Result<()> {
     cancel::install()?;
     let args = Args::parse();
+
+    if matches!(args.command, Some(Command::Update)) {
+        return update::run();
+    }
 
     if let Err(e) = assets::ensure() {
         if cancel::cancelled() {
