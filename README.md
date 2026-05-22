@@ -59,6 +59,38 @@ yap update
 
 Re-runs the installer to fetch the latest release, replacing the binary in the same directory it's currently installed in.
 
+## Global hotkey
+
+`yap` is a one-shot CLI, so binding a system-wide hotkey is best handled outside the binary.
+
+### macOS Shortcuts
+
+1. Open **Shortcuts.app** and create a new shortcut named *Yap Clipboard*.
+2. Add the **Run Shell Script** action with:
+   ```sh
+   /usr/local/bin/yap
+   ```
+   (Or `~/.local/bin/yap` if you installed there. Use the full path — Shortcuts doesn't inherit your shell's `PATH`.)
+3. In the shortcut's info panel (⌘I), set a **Keyboard Shortcut** — e.g. `⌃⌥⌘Y`.
+
+Running the shortcut a second time won't stop playback — it spawns another instance. To stop, either focus the terminal it launched from and hit `Ctrl-C`, or wire up a second shortcut that runs `killall yap`.
+
+### Raycast
+
+1. Create a **Script Command** (Extensions → + → Create Script Command) with language `bash`:
+   ```bash
+   #!/bin/bash
+   # @raycast.schemaVersion 1
+   # @raycast.title Yap Clipboard
+   # @raycast.mode silent
+   # @raycast.packageName Yap
+
+   /usr/local/bin/yap
+   ```
+2. In Raycast settings, find the *Yap Clipboard* command and assign a **Hotkey**.
+
+Set `@raycast.mode` to `compact` instead of `silent` if you want a HUD while it's speaking.
+
 ## How it works
 
 1. Reads the clipboard via [`arboard`](https://github.com/1Password/arboard) (with a `pbpaste` fallback).
