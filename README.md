@@ -52,15 +52,17 @@ quits.
 ```sh
 yap --voice af_heart --speed 1.1 --lang en-us
 yap --list-voices
+yap --save out.wav   # or out.mp3
 ```
 
-| Flag            | Default    | Description                            |
-| --------------- | ---------- | -------------------------------------- |
-| `--voice`       | `af_heart` | Voice name                             |
-| `--speed`       | `1.0`      | Speech rate                            |
-| `--lang`        | `en-us`    | Language code                          |
-| `--watch`       | —          | Speak on every clipboard change        |
-| `--list-voices` | —          | Print voices and exit                  |
+| Flag            | Default    | Description                                        |
+| --------------- | ---------- | -------------------------------------------------- |
+| `--voice`       | `af_heart` | Voice name                                         |
+| `--speed`       | `1.0`      | Speech rate                                        |
+| `--lang`        | `en-us`    | Language code                                      |
+| `--watch`       | —          | Speak on every clipboard change                    |
+| `--save PATH`   | —          | Write audio to `.wav` or `.mp3` instead of playing |
+| `--list-voices` | —          | Print voices and exit                              |
 
 ### Update
 
@@ -69,6 +71,38 @@ yap update
 ```
 
 Re-runs the installer to fetch the latest release, replacing the binary in the same directory it's currently installed in.
+
+## Global hotkey
+
+`yap` is a one-shot CLI, so binding a system-wide hotkey is best handled outside the binary.
+
+### macOS Shortcuts
+
+1. Open **Shortcuts.app** and create a new shortcut named *Yap Clipboard*.
+2. Add the **Run Shell Script** action with:
+   ```sh
+   /usr/local/bin/yap
+   ```
+   (Or `~/.local/bin/yap` if you installed there. Use the full path — Shortcuts doesn't inherit your shell's `PATH`.)
+3. In the shortcut's info panel (⌘I), set a **Keyboard Shortcut** — e.g. `⌃⌥⌘Y`.
+
+Running the shortcut a second time won't stop playback — it spawns another instance. To stop, either focus the terminal it launched from and hit `Ctrl-C`, or wire up a second shortcut that runs `killall yap`.
+
+### Raycast
+
+A ready-to-use script command lives at [`extras/raycast/yap.sh`](extras/raycast/yap.sh). It auto-detects whether `yap` is installed in `/usr/local/bin` or `~/.local/bin`.
+
+1. In Raycast settings → **Extensions** → **Script Commands**, note your **Script Directories** path (add one if you don't have it set — e.g. `~/.raycast-scripts`).
+2. Drop the script into that directory:
+   ```sh
+   mkdir -p ~/.raycast-scripts
+   curl -fsSL https://raw.githubusercontent.com/jonstuebe/yap/main/extras/raycast/yap.sh \
+     -o ~/.raycast-scripts/yap.sh
+   chmod +x ~/.raycast-scripts/yap.sh
+   ```
+3. Back in Raycast settings → **Extensions**, find *Yap Clipboard* and assign a **Hotkey**.
+
+Edit the `@raycast.mode` line in `yap.sh` from `silent` to `compact` if you want a HUD while it's speaking.
 
 ## How it works
 
