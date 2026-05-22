@@ -77,19 +77,20 @@ Running the shortcut a second time won't stop playback — it spawns another ins
 
 ### Raycast
 
-1. Create a **Script Command** (Extensions → + → Create Script Command) with language `bash`:
-   ```bash
-   #!/bin/bash
-   # @raycast.schemaVersion 1
-   # @raycast.title Yap Clipboard
-   # @raycast.mode silent
-   # @raycast.packageName Yap
+1. In Raycast, run **Create Script Command** and fill in:
+   - **Template**: `Bash`
+   - **Mode**: `Silent` (or `Compact` if you want a HUD while it's speaking)
+   - **Title**: `Yap Clipboard`
+   - **Description**: `Speak clipboard via yap`
+   - **Package Name**: `yap`
 
+   Leave *Needs confirmation* and *With argument* unchecked.
+2. Raycast generates a `.sh` file (in whichever directory you've set as your Script Commands path) with the `@raycast.*` headers pre-filled. Open it and replace the placeholder body with:
+   ```sh
    /usr/local/bin/yap
    ```
-2. In Raycast settings, find the *Yap Clipboard* command and assign a **Hotkey**.
-
-Set `@raycast.mode` to `compact` instead of `silent` if you want a HUD while it's speaking.
+   (Use `~/.local/bin/yap` if you installed there.)
+3. Back in Raycast settings → **Extensions**, find *Yap Clipboard* and assign a **Hotkey**.
 
 ## How it works
 
