@@ -42,14 +42,16 @@ Hit `Ctrl-C` to stop playback.
 ```sh
 yap --voice af_heart --speed 1.1 --lang en-us
 yap --list-voices
+yap --save out.wav   # or out.mp3
 ```
 
-| Flag            | Default    | Description           |
-| --------------- | ---------- | --------------------- |
-| `--voice`       | `af_heart` | Voice name            |
-| `--speed`       | `1.0`      | Speech rate           |
-| `--lang`        | `en-us`    | Language code         |
-| `--list-voices` | —          | Print voices and exit |
+| Flag            | Default    | Description                                       |
+| --------------- | ---------- | ------------------------------------------------- |
+| `--voice`       | `af_heart` | Voice name                                        |
+| `--speed`       | `1.0`      | Speech rate                                       |
+| `--lang`        | `en-us`    | Language code                                     |
+| `--list-voices` | —          | Print voices and exit                             |
+| `--save PATH`   | —          | Write audio to `.wav` or `.mp3` instead of playing |
 
 ### Update
 
