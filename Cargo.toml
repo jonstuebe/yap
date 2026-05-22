@@ -25,3 +25,7 @@ mp3lame-encoder = "0.2"
 [profile.release]
 lto = "thin"
 strip = "symbols"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+perf = "deny"

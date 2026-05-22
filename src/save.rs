@@ -5,6 +5,10 @@ use std::path::Path;
 
 use mp3lame_encoder::{Bitrate, Builder, FlushNoGap, MonoPcm, Quality};
 
+fn to_i16(sample: f32) -> i16 {
+    (sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16
+}
+
 pub enum Sink {
     Wav(hound::WavWriter<BufWriter<File>>),
     Mp3(Mp3Writer),
@@ -64,16 +68,14 @@ impl Sink {
         match self {
             Sink::Wav(writer) => {
                 for &s in samples {
-                    let v = (s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
-                    writer.write_sample(v).context("writing WAV sample")?;
+                    writer
+                        .write_sample(to_i16(s))
+                        .context("writing WAV sample")?;
                 }
                 Ok(())
             }
             Sink::Mp3(w) => {
-                let pcm: Vec<i16> = samples
-                    .iter()
-                    .map(|&s| (s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16)
-                    .collect();
+                let pcm: Vec<i16> = samples.iter().map(|&s| to_i16(s)).collect();
                 let mut buf: Vec<u8> =
                     Vec::with_capacity(mp3lame_encoder::max_required_buffer_size(pcm.len()));
                 let n = w
