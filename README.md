@@ -37,6 +37,16 @@ yap
 
 Hit `Ctrl-C` to stop playback.
 
+### Watch mode
+
+```sh
+yap --watch
+```
+
+Monitors the clipboard and speaks whatever you copy. Copying again while it's
+talking cancels the current playback and starts on the new selection. `Ctrl-C`
+quits.
+
 ### Options
 
 ```sh
@@ -45,13 +55,14 @@ yap --list-voices
 yap --save out.wav   # or out.mp3
 ```
 
-| Flag            | Default    | Description                                       |
-| --------------- | ---------- | ------------------------------------------------- |
-| `--voice`       | `af_heart` | Voice name                                        |
-| `--speed`       | `1.0`      | Speech rate                                       |
-| `--lang`        | `en-us`    | Language code                                     |
-| `--list-voices` | —          | Print voices and exit                             |
+| Flag            | Default    | Description                                        |
+| --------------- | ---------- | -------------------------------------------------- |
+| `--voice`       | `af_heart` | Voice name                                         |
+| `--speed`       | `1.0`      | Speech rate                                        |
+| `--lang`        | `en-us`    | Language code                                      |
+| `--watch`       | —          | Speak on every clipboard change                    |
 | `--save PATH`   | —          | Write audio to `.wav` or `.mp3` instead of playing |
+| `--list-voices` | —          | Print voices and exit                              |
 
 ### Update
 
