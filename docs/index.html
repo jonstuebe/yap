@@ -124,7 +124,7 @@ h1 {
   font-weight: 800; letter-spacing: -.05em; line-height: 1;
   color: var(--bright);
 }
-.cursor {
+.cursor.animated {
   color: var(--amber); font-weight: 400;
   animation: blink 1.1s step-end infinite;
 }
@@ -431,7 +431,7 @@ footer .bottom .ok { color: var(--green); }
     transition-duration: .001s !important;
   }
   .scanlines { display: none; }
-  .cursor { animation: none; opacity: 1; }
+  .cursor.animated { animation: none; opacity: 1; }
 }
 </style>
 </head>
@@ -455,7 +455,7 @@ footer .bottom .ok { color: var(--green); }
 <header class="hero" id="top">
   <div class="wrap">
     <span class="badge"><b>v0.3.0</b><i>·</i>Apple Silicon macOS<i>·</i>GPL-3.0</span>
-    <h1>yap<span class="cursor">▊</span></h1>
+    <h1>yap<span class="cursor animated">▊</span></h1>
     <p class="tagline"><code>pbpaste</code>, but it talks.</p>
     <p class="lede">yap reads your macOS clipboard aloud using <b>Kokoro TTS</b>. Synthesis streams chunk-by-chunk, so audio starts playing as soon as the first sentence is ready — not after the whole clipboard.</p>
 
@@ -797,7 +797,7 @@ footer .bottom .ok { color: var(--green); }
   function wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 
   function typeCmd(cmd) {
-    var l = line(PROMPT + '<span class="cmd"></span><span class="cursor">▊</span>');
+    var l = line(PROMPT + '<span class="cmd"></span><span class="cursor animated">▊</span>');
     body.appendChild(l);
     var span = l.querySelector('.cmd');
     var i = 0;
@@ -807,7 +807,7 @@ footer .bottom .ok { color: var(--green); }
         return wait(30 + Math.random() * 55).then(step);
       }
       return wait(320).then(function () {
-        var c = l.querySelector('.cursor');
+        var c = l.querySelector('.cursor.animated');
         if (c) c.remove();
       });
     }
@@ -834,7 +834,7 @@ footer .bottom .ok { color: var(--green); }
   if (reduced) {
     body.appendChild(line(PROMPT + '<span class="cmd">yap</span>'));
     body.appendChild(line('<span class="ok">✓</span> <span class="mut">synthesizing first of 2 chunk(s)</span> <span class="dim">0.8s</span>'));
-    body.appendChild(line(PROMPT + '<span class="cursor">▊</span>'));
+    body.appendChild(line(PROMPT + '<span class="cursor animated">▊</span>'));
     return;
   }
 
