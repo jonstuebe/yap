@@ -51,10 +51,13 @@ fn split_sentences(text: &str) -> Vec<&str> {
 fn hard_cut(s: &str, max_chars: usize) -> Vec<String> {
     let mut out = Vec::new();
     let mut buf = String::new();
+    let mut count = 0;
     for ch in s.chars() {
         buf.push(ch);
-        if buf.chars().count() >= max_chars {
+        count += 1;
+        if count >= max_chars {
             out.push(std::mem::take(&mut buf));
+            count = 0;
         }
     }
     if !buf.is_empty() {
@@ -108,7 +111,7 @@ mod tests {
 
     #[test]
     fn unicode_counted_by_chars_not_bytes() {
-        let s: String = std::iter::repeat('é').take(500).collect();
+        let s = "é".repeat(500);
         let out = chunk_text(&s);
         assert_eq!(out.len(), 2);
         assert_eq!(out[0].chars().count(), 400);

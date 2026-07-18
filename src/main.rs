@@ -48,6 +48,54 @@ enum Command {
     Update,
 }
 
+#[derive(Clone)]
+struct SpeakOpts {
+    voice: String,
+    speed: f32,
+    lang: String,
+}
+
+impl SpeakOpts {
+    fn from_args(args: &Args) -> Self {
+        Self {
+            voice: args.voice.clone(),
+            speed: args.speed,
+            lang: args.lang.clone(),
+        }
+    }
+}
+
+fn produce<F: Fn() -> bool>(
+    synth: &synth::Synth,
+    chunks: Vec<String>,
+    opts: &SpeakOpts,
+    tx: crossbeam_channel::Sender<(usize, Vec<f32>)>,
+    stopped: F,
+) -> Result<()> {
+    for (i, chunk) in chunks.into_iter().enumerate() {
+        if stopped() {
+            break;
+        }
+        let samples = synth.synthesize(&chunk, &opts.voice, opts.speed, &opts.lang)?;
+        if stopped() {
+            break;
+        }
+        let mut pending = Some((i, samples));
+        while !stopped() {
+            match tx.send_timeout(pending.take().unwrap(), Duration::from_millis(200)) {
+                Ok(()) => break,
+                Err(crossbeam_channel::SendTimeoutError::Timeout(item)) => {
+                    pending = Some(item);
+                }
+                Err(crossbeam_channel::SendTimeoutError::Disconnected(_)) => {
+                    return Ok(());
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 fn main() -> Result<()> {
     cancel::install()?;
     let args = Args::parse();
@@ -84,8 +132,10 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
+    let opts = SpeakOpts::from_args(&args);
+
     if args.watch {
-        watch(synth, args.voice, args.speed, args.lang)?;
+        watch(synth, opts)?;
         if cancel::cancelled() {
             std::process::exit(130);
         }
@@ -99,10 +149,10 @@ fn main() -> Result<()> {
         std::process::exit(1);
     }
 
-    let cancelled = if let Some(path) = args.save.clone() {
-        run_save(synth, chunks, args, path)?
+    let cancelled = if let Some(path) = args.save {
+        run_save(synth, chunks, opts, path)?
     } else {
-        run_play(synth, chunks, args)?
+        run_play(synth, chunks, opts)?
     };
     if cancelled {
         std::process::exit(130);
@@ -113,39 +163,13 @@ fn main() -> Result<()> {
 fn spawn_producer(
     synth: synth::Synth,
     chunks: Vec<String>,
-    args: &Args,
+    opts: SpeakOpts,
     tx: crossbeam_channel::Sender<(usize, Vec<f32>)>,
 ) -> thread::JoinHandle<Result<()>> {
-    let voice = args.voice.clone();
-    let lang = args.lang.clone();
-    let speed = args.speed;
-    thread::spawn(move || -> Result<()> {
-        for (i, chunk) in chunks.into_iter().enumerate() {
-            if cancel::cancelled() {
-                break;
-            }
-            let samples = synth.synthesize(&chunk, &voice, speed, &lang)?;
-            if cancel::cancelled() {
-                break;
-            }
-            let mut pending = Some((i, samples));
-            while !cancel::cancelled() {
-                match tx.send_timeout(pending.take().unwrap(), Duration::from_millis(200)) {
-                    Ok(()) => break,
-                    Err(crossbeam_channel::SendTimeoutError::Timeout(item)) => {
-                        pending = Some(item);
-                    }
-                    Err(crossbeam_channel::SendTimeoutError::Disconnected(_)) => {
-                        return Ok(());
-                    }
-                }
-            }
-        }
-        Ok(())
-    })
+    thread::spawn(move || produce(&synth, chunks, &opts, tx, cancel::cancelled))
 }
 
-fn run_play(synth: synth::Synth, chunks: Vec<String>, args: Args) -> Result<bool> {
+fn run_play(synth: synth::Synth, chunks: Vec<String>, opts: SpeakOpts) -> Result<bool> {
     let total = chunks.len();
     let player = play::Player::new()?;
     let (tx, rx) = bounded::<(usize, Vec<f32>)>(2);
@@ -155,7 +179,7 @@ fn run_play(synth: synth::Synth, chunks: Vec<String>, args: Args) -> Result<bool
         cancel::on_cancel(move || sink.stop());
     }
 
-    let producer = spawn_producer(synth, chunks, &args, tx);
+    let producer = spawn_producer(synth, chunks, opts, tx);
 
     let tty = std::io::stderr().is_terminal();
 
@@ -163,10 +187,7 @@ fn run_play(synth: synth::Synth, chunks: Vec<String>, args: Args) -> Result<bool
     let first = rx.recv();
     spin.finish(first.is_ok());
 
-    let mut item = match first {
-        Ok(v) => Some(v),
-        Err(_) => None,
-    };
+    let mut item = first.ok();
 
     while let Some((i, samples)) = item.take() {
         if cancel::cancelled() {
@@ -192,9 +213,7 @@ fn run_play(synth: synth::Synth, chunks: Vec<String>, args: Args) -> Result<bool
 
     while rx.try_recv().is_ok() {}
     drop(rx);
-    if let Err(e) = producer.join().unwrap_or(Ok(())) {
-        return Err(e);
-    }
+    producer.join().unwrap_or(Ok(()))?;
 
     Ok(cancel::cancelled())
 }
@@ -202,14 +221,14 @@ fn run_play(synth: synth::Synth, chunks: Vec<String>, args: Args) -> Result<bool
 fn run_save(
     synth: synth::Synth,
     chunks: Vec<String>,
-    args: Args,
+    opts: SpeakOpts,
     path: PathBuf,
 ) -> Result<bool> {
     let total = chunks.len();
     let mut sink = save::Sink::create(&path, synth::SAMPLE_RATE)?;
     let (tx, rx) = bounded::<(usize, Vec<f32>)>(2);
 
-    let producer = spawn_producer(synth, chunks, &args, tx);
+    let producer = spawn_producer(synth, chunks, opts, tx);
 
     let tty = std::io::stderr().is_terminal();
 
@@ -280,7 +299,7 @@ impl WatchJob {
     }
 }
 
-fn watch(synth: synth::Synth, voice: String, speed: f32, lang: String) -> Result<()> {
+fn watch(synth: synth::Synth, opts: SpeakOpts) -> Result<()> {
     let mut clipboard = match arboard::Clipboard::new() {
         Ok(c) => c,
         Err(e) => return Err(anyhow!("opening clipboard: {e}")),
@@ -321,7 +340,7 @@ fn watch(synth: synth::Synth, voice: String, speed: f32, lang: String) -> Result
                 let s = synth_slot
                     .take()
                     .ok_or_else(|| anyhow!("synth missing between jobs"))?;
-                let job = spawn_watch_job(s, chunks, voice.clone(), speed, lang.clone(), tty)?;
+                let job = spawn_watch_job(s, chunks, opts.clone(), tty)?;
                 *current_sink.lock().unwrap() = Some(job.sink.clone());
                 current = Some(job);
             }
@@ -353,9 +372,7 @@ fn watch(synth: synth::Synth, voice: String, speed: f32, lang: String) -> Result
 fn spawn_watch_job(
     synth: synth::Synth,
     chunks: Vec<String>,
-    voice: String,
-    speed: f32,
-    lang: String,
+    opts: SpeakOpts,
     tty: bool,
 ) -> Result<WatchJob> {
     // Player owns a cpal::Stream which is not Send on macOS, so it has to be
@@ -377,7 +394,7 @@ fn spawn_watch_job(
             return Ok(synth);
         }
         drop(init_tx);
-        run_watch_job(&synth, &player, chunks, &voice, speed, &lang, &stop_t, tty)?;
+        run_watch_job(&synth, &player, chunks, &opts, &stop_t, tty)?;
         Ok(synth)
     });
 
@@ -399,9 +416,7 @@ fn run_watch_job(
     synth: &synth::Synth,
     player: &play::Player,
     chunks: Vec<String>,
-    voice: &str,
-    speed: f32,
-    lang: &str,
+    opts: &SpeakOpts,
     stop: &AtomicBool,
     tty: bool,
 ) -> Result<()> {
@@ -414,30 +429,7 @@ fn run_watch_job(
     let result = thread::scope(|s| -> Result<()> {
         let (tx, rx) = bounded::<(usize, Vec<f32>)>(2);
 
-        let producer = s.spawn(move || -> Result<()> {
-            for (i, chunk) in chunks.into_iter().enumerate() {
-                if stopped(stop) {
-                    break;
-                }
-                let samples = synth.synthesize(&chunk, voice, speed, lang)?;
-                if stopped(stop) {
-                    break;
-                }
-                let mut pending = Some((i, samples));
-                while !stopped(stop) {
-                    match tx.send_timeout(pending.take().unwrap(), Duration::from_millis(200)) {
-                        Ok(()) => break,
-                        Err(crossbeam_channel::SendTimeoutError::Timeout(item)) => {
-                            pending = Some(item);
-                        }
-                        Err(crossbeam_channel::SendTimeoutError::Disconnected(_)) => {
-                            return Ok(());
-                        }
-                    }
-                }
-            }
-            Ok(())
-        });
+        let producer = s.spawn(move || produce(synth, chunks, opts, tx, || stopped(stop)));
 
         loop {
             if stopped(stop) {
