@@ -4,3 +4,6 @@ target/
 # Kokoro model files (downloaded on first run by kokoros)
 models/
 
+# Wrangler local cache
+.wrangler/
+

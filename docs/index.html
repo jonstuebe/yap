@@ -1,0 +1,852 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>yap — pbpaste, but it talks</title>
+<meta name="description" content="yap reads your macOS clipboard aloud with Kokoro TTS. Streaming chunk-by-chunk synthesis, watch mode, and a self-contained Apple Silicon binary.">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0a0c0d">
+<meta property="og:title" content="yap — pbpaste, but it talks">
+<meta property="og:description" content="Reads your macOS clipboard aloud with Kokoro TTS. Audio starts as soon as the first sentence is ready.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://yap.jonstuebe.com/">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230a0c0d'/%3E%3Cpath d='M16 26v12h9l11 9V17l-11 9h-9z' fill='%23f5a524'/%3E%3Cpath d='M42 25c3.5 3.5 3.5 10.5 0 14' stroke='%23f5a524' stroke-width='4' fill='none' stroke-linecap='round'/%3E%3Cpath d='M48 19c6 6 6 20 0 26' stroke='%23f5a524' stroke-width='4' fill='none' stroke-linecap='round' opacity='.55'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,700;0,800;1,400&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0a0c0d;
+  --bg-panel: #101415;
+  --bg-term: #0c0f10;
+  --bg-bar: #13181a;
+  --border: #1d2426;
+  --border-bright: #2b3436;
+  --text: #d9e2dc;
+  --bright: #f2f7f4;
+  --muted: #8b9791;
+  --dim: #5c6862;
+  --amber: #f5a524;
+  --amber-soft: rgba(245, 165, 36, .08);
+  --green: #3ddc84;
+  --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 16px;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+::selection { background: rgba(245, 165, 36, .28); color: var(--bright); }
+
+:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; border-radius: 4px; }
+
+::-webkit-scrollbar { width: 10px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 5px; }
+
+.wrap { max-width: 76ch; margin: 0 auto; padding: 0 24px; }
+
+/* ── CRT scanlines ─────────────────────────────── */
+.scanlines {
+  position: fixed; inset: 0; z-index: 100;
+  pointer-events: none;
+  background: repeating-linear-gradient(0deg, rgba(255,255,255,.028) 0 1px, transparent 1px 3px);
+}
+
+/* ── Nav ───────────────────────────────────────── */
+nav.site {
+  position: sticky; top: 0; z-index: 50;
+  background: rgba(10, 12, 13, .82);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+}
+nav.site .wrap {
+  display: flex; align-items: center; gap: 28px;
+  height: 56px;
+}
+.logo {
+  font-weight: 800; font-size: 17px; color: var(--bright);
+  text-decoration: none; letter-spacing: -.02em;
+}
+.logo .cursor { color: var(--amber); }
+.nav-links { display: flex; gap: 22px; margin-left: auto; }
+.nav-links a {
+  color: var(--muted); text-decoration: none; font-size: 13px;
+  transition: color .15s ease;
+}
+.nav-links a:hover { color: var(--amber); }
+.nav-links a.gh { color: var(--amber); }
+.nav-links a.gh:hover { color: var(--bright); }
+
+/* ── Hero ──────────────────────────────────────── */
+header.hero {
+  position: relative;
+  padding: 96px 0 72px;
+  overflow: hidden;
+}
+header.hero::before {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background:
+    radial-gradient(640px 320px at 18% -5%, rgba(245, 165, 36, .09), transparent 60%),
+    radial-gradient(760px 380px at 92% 12%, rgba(61, 220, 132, .05), transparent 60%),
+    linear-gradient(rgba(255,255,255,.022) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,.022) 1px, transparent 1px);
+  background-size: auto, auto, 44px 44px, 44px 44px;
+  -webkit-mask-image: radial-gradient(ellipse 90% 80% at 50% 0%, black 30%, transparent 100%);
+  mask-image: radial-gradient(ellipse 90% 80% at 50% 0%, black 30%, transparent 100%);
+}
+header.hero .wrap { position: relative; }
+
+.badge {
+  display: inline-flex; align-items: center; gap: 10px;
+  border: 1px solid var(--border-bright); border-radius: 999px;
+  padding: 5px 14px; font-size: 12px; color: var(--muted);
+  background: rgba(16, 20, 21, .6);
+}
+.badge b { color: var(--green); font-weight: 500; }
+.badge i { color: var(--dim); font-style: normal; }
+
+h1 {
+  margin-top: 26px;
+  font-size: clamp(4rem, 15vw, 8.5rem);
+  font-weight: 800; letter-spacing: -.05em; line-height: 1;
+  color: var(--bright);
+}
+.cursor {
+  color: var(--amber); font-weight: 400;
+  animation: blink 1.1s step-end infinite;
+}
+@keyframes blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+
+.tagline {
+  margin-top: 14px;
+  font-size: clamp(1.2rem, 3.2vw, 1.7rem);
+  font-weight: 500; color: var(--text);
+}
+.tagline code { color: var(--amber); }
+
+.lede {
+  margin-top: 16px; max-width: 58ch;
+  color: var(--muted); font-size: 15px;
+}
+.lede b { color: var(--text); font-weight: 500; }
+
+.hero-term { margin-top: 40px; }
+.hero-term .term-body { min-height: 8.2em; }
+
+.hero-cta {
+  margin-top: 28px;
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+}
+.install-chip {
+  display: inline-flex; align-items: center; gap: 12px;
+  border: 1px solid var(--border-bright); border-radius: 8px;
+  background: var(--bg-panel);
+  padding: 10px 8px 10px 16px;
+  font-size: 13.5px; color: var(--text);
+  max-width: 100%;
+}
+.install-chip .ps1 { user-select: none; }
+.install-chip code { overflow-wrap: anywhere; }
+a.gh-link {
+  color: var(--muted); font-size: 13.5px; text-decoration: none;
+  border-bottom: 1px dashed var(--border-bright);
+  padding-bottom: 2px;
+  transition: color .15s ease, border-color .15s ease;
+}
+a.gh-link:hover { color: var(--amber); border-color: var(--amber); }
+
+/* ── Terminal windows ──────────────────────────── */
+.term {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-term);
+  overflow: hidden;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, .45);
+}
+.term-bar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 14px;
+  background: var(--bg-bar);
+  border-bottom: 1px solid var(--border);
+}
+.dot { width: 12px; height: 12px; border-radius: 50%; flex: none; }
+.dot.r { background: #ff5f57; }
+.dot.y { background: #febc2e; }
+.dot.g { background: #28c840; }
+.term-title {
+  margin: 0 auto; padding-right: 52px;
+  color: var(--dim); font-size: 12px;
+  user-select: none;
+}
+.term-body {
+  padding: 18px 20px;
+  font-size: 14px; line-height: 1.8;
+  white-space: pre-wrap; word-break: break-word;
+}
+.term-body .tline { min-height: 1.8em; }
+
+.ps1 { color: var(--green); font-weight: 700; }
+.cmd { color: var(--bright); }
+.flag { color: var(--amber); }
+.ok { color: var(--green); }
+.dim { color: var(--dim); }
+.mut { color: var(--muted); }
+.amber { color: var(--amber); }
+.cm { color: var(--dim); font-style: italic; }
+
+.copy-btn {
+  margin-left: auto; flex: none;
+  font-family: var(--mono); font-size: 11.5px;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--border-bright);
+  border-radius: 6px;
+  padding: 4px 12px;
+  cursor: pointer;
+  transition: color .15s ease, border-color .15s ease;
+}
+.copy-btn:hover { color: var(--amber); border-color: var(--amber); }
+.copy-btn.copied { color: var(--green); border-color: var(--green); }
+.term-bar .copy-btn { margin-left: 0; }
+.term-bar .spacer { margin-left: auto; }
+
+/* ── Waveform ──────────────────────────────────── */
+.wave {
+  display: inline-flex; align-items: center; gap: 3px;
+  height: 1.8em; padding: .2em 0;
+}
+.wave i {
+  width: 3px; height: 100%;
+  background: var(--green); border-radius: 2px;
+  animation: eq .8s ease-in-out infinite alternate;
+  opacity: .85;
+}
+.wave i:nth-child(4n)   { animation-duration: .7s; animation-delay: -.15s; }
+.wave i:nth-child(4n+1) { animation-duration: .95s; animation-delay: -.4s; }
+.wave i:nth-child(4n+2) { animation-duration: .6s; animation-delay: -.25s; }
+.wave i:nth-child(4n+3) { animation-duration: 1.1s; animation-delay: -.6s; }
+.wave i:nth-child(7n)   { background: var(--amber); }
+@keyframes eq {
+  from { transform: scaleY(.15); }
+  to   { transform: scaleY(.95); }
+}
+
+/* ── Sections ──────────────────────────────────── */
+main section {
+  padding: 72px 0;
+  border-top: 1px solid var(--border);
+  scroll-margin-top: 72px;
+}
+section h2 {
+  font-size: clamp(1.5rem, 4vw, 2.1rem);
+  font-weight: 700; letter-spacing: -.03em;
+  color: var(--bright);
+  margin-bottom: 12px;
+}
+section h2 .ps1 { color: var(--amber); margin-right: 6px; }
+section .sub { color: var(--muted); font-size: 14.5px; max-width: 62ch; margin-bottom: 32px; }
+section .sub code { color: var(--amber); font-size: 13.5px; }
+
+/* ── Install ───────────────────────────────────── */
+.notes { display: grid; gap: 14px; margin-top: 24px; }
+.note {
+  border-left: 2px solid var(--amber);
+  background: var(--amber-soft);
+  border-radius: 0 8px 8px 0;
+  padding: 13px 18px;
+  color: var(--muted); font-size: 13.5px;
+}
+.note code { color: var(--amber); font-size: 12.5px; }
+.note b { color: var(--text); font-weight: 500; }
+.src-block { margin-top: 28px; }
+.src-block h3 { font-size: 14px; color: var(--muted); font-weight: 500; margin-bottom: 12px; }
+.src-block h3 .ps1 { color: var(--amber); margin-right: 6px; }
+
+/* ── Features ──────────────────────────────────── */
+.features-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 16px;
+}
+.card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-panel);
+  padding: 22px;
+  transition: border-color .18s ease, transform .18s ease;
+}
+.card:hover { border-color: var(--border-bright); transform: translateY(-3px); }
+.card .glyph {
+  display: inline-block;
+  color: var(--amber); font-size: 18px; font-weight: 700;
+  border: 1px solid var(--border-bright); border-radius: 8px;
+  width: 40px; height: 40px; line-height: 38px; text-align: center;
+  background: var(--bg-term);
+  margin-bottom: 16px;
+}
+.card h3 { font-size: 15px; font-weight: 700; color: var(--bright); margin-bottom: 8px; }
+.card p { font-size: 13.5px; color: var(--muted); line-height: 1.7; }
+.card p code { color: var(--amber); font-size: 12.5px; }
+
+/* ── Usage ─────────────────────────────────────── */
+.usage-grid { display: grid; gap: 24px; }
+.usage-item > p { font-size: 13.5px; color: var(--muted); margin: 12px 0 0 2px; }
+.usage-item > p code { color: var(--amber); font-size: 12.5px; }
+
+.table-scroll { overflow-x: auto; margin-top: 28px; border: 1px solid var(--border); border-radius: 10px; }
+table { width: 100%; border-collapse: collapse; font-size: 13.5px; background: var(--bg-panel); }
+th {
+  text-align: left; font-weight: 500; font-size: 11px;
+  text-transform: uppercase; letter-spacing: .12em;
+  color: var(--dim);
+  padding: 12px 18px;
+  background: var(--bg-bar);
+  border-bottom: 1px solid var(--border);
+}
+td { padding: 11px 18px; border-top: 1px solid var(--border); color: var(--muted); }
+tbody tr:first-child td { border-top: none; }
+td code { color: var(--amber); font-size: 12.5px; }
+td.def { color: var(--green); font-size: 12.5px; }
+
+/* ── Hotkey ────────────────────────────────────── */
+.hotkey-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 16px;
+}
+.hotkey-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-panel);
+  padding: 24px;
+}
+.hotkey-card h3 { font-size: 15px; font-weight: 700; color: var(--bright); margin-bottom: 6px; }
+.hotkey-card h3 .dim { font-weight: 400; margin-left: 8px; font-size: 12px; }
+.hotkey-card > p { font-size: 13.5px; color: var(--muted); margin-bottom: 16px; }
+.hotkey-card > p code { color: var(--amber); font-size: 12.5px; }
+.hotkey-card ol { list-style: none; counter-reset: step; display: grid; gap: 12px; }
+.hotkey-card ol li {
+  counter-increment: step;
+  position: relative;
+  padding-left: 34px;
+  font-size: 13.5px; color: var(--muted); line-height: 1.6;
+}
+.hotkey-card ol li::before {
+  content: counter(step, decimal-leading-zero);
+  position: absolute; left: 0; top: 1px;
+  color: var(--amber); font-size: 12px; font-weight: 700;
+}
+.hotkey-card ol li code { color: var(--amber); font-size: 12.5px; }
+.hotkey-card ol li kbd {
+  font-family: var(--mono); font-size: 11.5px;
+  border: 1px solid var(--border-bright); border-bottom-width: 2px;
+  border-radius: 4px; padding: 1px 5px;
+  background: var(--bg-term); color: var(--text);
+}
+.hotkey-card .term { margin: 14px 0; }
+.hotkey-card .term-body { padding: 12px 16px; font-size: 12.5px; }
+.hotkey-note { margin-top: 16px; font-size: 12.5px; color: var(--dim); line-height: 1.6; }
+.hotkey-note code { color: var(--amber); }
+
+/* ── How it works ──────────────────────────────── */
+.steps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+}
+.step {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-panel);
+  padding: 24px 22px;
+  position: relative;
+}
+.step .num {
+  font-size: 40px; font-weight: 800; letter-spacing: -.04em;
+  color: transparent;
+  -webkit-text-stroke: 1px var(--amber);
+  display: block; margin-bottom: 14px;
+}
+.step h3 { font-size: 15px; font-weight: 700; color: var(--bright); margin-bottom: 8px; }
+.step p { font-size: 13.5px; color: var(--muted); line-height: 1.7; }
+.step p code { color: var(--amber); font-size: 12.5px; }
+
+/* ── Footer ────────────────────────────────────── */
+footer {
+  border-top: 1px solid var(--border);
+  padding: 56px 0 48px;
+  color: var(--dim); font-size: 13px;
+}
+footer .top {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  gap: 24px; flex-wrap: wrap;
+}
+footer .brand { max-width: 40ch; }
+footer .brand .logo { font-size: 15px; }
+footer .brand p { margin-top: 10px; line-height: 1.7; }
+footer .brand p code { color: var(--amber); font-size: 12px; }
+footer .links { display: grid; gap: 8px; }
+footer .links a {
+  color: var(--muted); text-decoration: none; font-size: 13px;
+  transition: color .15s ease;
+}
+footer .links a:hover { color: var(--amber); }
+footer .bottom {
+  margin-top: 40px; padding-top: 20px;
+  border-top: 1px solid var(--border);
+  display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  font-size: 12px;
+}
+footer .bottom .ok { color: var(--green); }
+
+/* ── Responsive ────────────────────────────────── */
+@media (max-width: 640px) {
+  .nav-links a:not(.gh) { display: none; }
+  header.hero { padding: 64px 0 56px; }
+  .term-body { font-size: 12.5px; padding: 14px 16px; }
+  .install-chip { font-size: 11.5px; width: 100%; }
+  .install-chip code { flex: 1; min-width: 0; }
+  main section { padding: 56px 0; }
+}
+
+/* ── Reduced motion ────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    animation-duration: .001s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001s !important;
+  }
+  .scanlines { display: none; }
+  .cursor { animation: none; opacity: 1; }
+}
+</style>
+</head>
+<body>
+<div class="scanlines" aria-hidden="true"></div>
+
+<nav class="site">
+  <div class="wrap">
+    <a class="logo" href="#top">yap<span class="cursor">▊</span></a>
+    <div class="nav-links">
+      <a href="#install">install</a>
+      <a href="#features">features</a>
+      <a href="#usage">usage</a>
+      <a href="#hotkey">hotkey</a>
+      <a href="#how">how it works</a>
+      <a class="gh" href="https://github.com/jonstuebe/yap">github ↗</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero" id="top">
+  <div class="wrap">
+    <span class="badge"><b>v0.3.0</b><i>·</i>Apple Silicon macOS<i>·</i>GPL-3.0</span>
+    <h1>yap<span class="cursor">▊</span></h1>
+    <p class="tagline"><code>pbpaste</code>, but it talks.</p>
+    <p class="lede">yap reads your macOS clipboard aloud using <b>Kokoro TTS</b>. Synthesis streams chunk-by-chunk, so audio starts playing as soon as the first sentence is ready — not after the whole clipboard.</p>
+
+    <div class="term hero-term">
+      <div class="term-bar">
+        <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+        <span class="term-title">yap — zsh</span>
+      </div>
+      <div class="term-body" id="heroBody"></div>
+    </div>
+
+    <div class="hero-cta">
+      <span class="install-chip">
+        <span class="ps1">$</span>
+        <code>curl -fsSL https://raw.githubusercontent.com/jonstuebe/yap/main/install.sh | sh</code>
+        <button class="copy-btn" data-copy="curl -fsSL https://raw.githubusercontent.com/jonstuebe/yap/main/install.sh | sh" aria-label="Copy install command">copy</button>
+      </span>
+      <a class="gh-link" href="https://github.com/jonstuebe/yap">jonstuebe/yap ↗</a>
+    </div>
+  </div>
+</header>
+
+<main>
+
+<section id="install">
+  <div class="wrap">
+    <h2><span class="ps1">$</span>install</h2>
+    <p class="sub">One command, one binary, no runtime dependencies. Apple Silicon macOS only.</p>
+
+    <div class="term">
+      <div class="term-bar">
+        <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+        <span class="term-title">install</span>
+        <span class="spacer"></span>
+        <button class="copy-btn" data-copy="curl -fsSL https://raw.githubusercontent.com/jonstuebe/yap/main/install.sh | sh" aria-label="Copy install command">copy</button>
+      </div>
+      <div class="term-body"><div class="tline"><span class="ps1">$</span> <span class="cmd">curl -fsSL https://raw.githubusercontent.com/jonstuebe/yap/main/install.sh | sh</span></div></div>
+    </div>
+
+    <div class="notes">
+      <div class="note">Installs to <code>/usr/local/bin/yap</code> (falls back to <code>~/.local/bin</code> if not writable). Override with <code>YAP_INSTALL_DIR=...</code>.</div>
+      <div class="note">On first run, yap downloads the Kokoro model files <b>(~340MB)</b> to <code>~/Library/Application Support/yap/</code>.</div>
+      <div class="note">The release binary is <b>unsigned</b>. The installer downloads via <code>curl</code>, which doesn't set the Gatekeeper quarantine bit, so it runs without prompts. If you download the tarball from GitHub Releases in a browser instead, run <code>xattr -c /usr/local/bin/yap</code> to clear the quarantine attribute.</div>
+    </div>
+
+    <div class="src-block">
+      <h3><span class="ps1">$</span>from source — requires Rust 1.93+ and CMake</h3>
+      <div class="term">
+        <div class="term-bar">
+          <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+          <span class="term-title">build</span>
+          <span class="spacer"></span>
+          <button class="copy-btn" data-copy="brew install cmake&#10;cargo install --git https://github.com/jonstuebe/yap.git" aria-label="Copy build commands">copy</button>
+        </div>
+        <div class="term-body"><div class="tline"><span class="ps1">$</span> <span class="cmd">brew install cmake</span></div><div class="tline"><span class="ps1">$</span> <span class="cmd">cargo install --git https://github.com/jonstuebe/yap.git</span></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="features">
+  <div class="wrap">
+    <h2><span class="ps1">$</span>features</h2>
+    <p class="sub">A one-shot CLI that does one thing well: copy text, hear it spoken.</p>
+
+    <div class="features-grid">
+      <div class="card">
+        <span class="glyph">≋</span>
+        <h3>Streaming playback</h3>
+        <p>Synthesis streams chunk-by-chunk — audio starts the moment the first sentence is ready, not after the whole clipboard is processed.</p>
+      </div>
+      <div class="card">
+        <span class="glyph">◉</span>
+        <h3>Watch mode</h3>
+        <p><code>yap --watch</code> speaks whatever you copy. Copy again mid-playback and it cancels instantly, starting on the new selection.</p>
+      </div>
+      <div class="card">
+        <span class="glyph">⤓</span>
+        <h3>Save to file</h3>
+        <p><code>--save out.wav</code> or <code>out.mp3</code> writes the audio to disk instead of playing it. Podcast-ify any text in one command.</p>
+      </div>
+      <div class="card">
+        <span class="glyph">♪</span>
+        <h3>Voices, speed &amp; language</h3>
+        <p>Flags for voice, speech rate, and language code. Run <code>--list-voices</code> to browse every voice Kokoro ships with.</p>
+      </div>
+      <div class="card">
+        <span class="glyph">⬢</span>
+        <h3>Self-contained binary</h3>
+        <p>No Python, no ONNX Runtime, no espeak-ng install. <code>otool -L</code> shows only Apple system frameworks.</p>
+      </div>
+      <div class="card">
+        <span class="glyph">↻</span>
+        <h3>Built-in updates</h3>
+        <p><code>yap update</code> re-runs the installer and swaps the binary in place, wherever it's currently installed.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="usage">
+  <div class="wrap">
+    <h2><span class="ps1">$</span>usage</h2>
+    <p class="sub">Copy some text, then run <code>yap</code>. That's the whole interface.</p>
+
+    <div class="usage-grid">
+      <div class="usage-item">
+        <div class="term">
+          <div class="term-bar">
+            <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+            <span class="term-title">basic</span>
+          </div>
+          <div class="term-body"><div class="tline"><span class="ps1">$</span> <span class="cmd">yap</span></div><div class="tline"><span class="ok">✓</span> <span class="mut">synthesizing first of 3 chunk(s)</span> <span class="dim">1.2s</span></div></div>
+        </div>
+        <p>Hit <code>Ctrl-C</code> to stop playback.</p>
+      </div>
+
+      <div class="usage-item">
+        <div class="term">
+          <div class="term-bar">
+            <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+            <span class="term-title">watch mode</span>
+          </div>
+          <div class="term-body"><div class="tline"><span class="ps1">$</span> <span class="cmd">yap <span class="flag">--watch</span></span></div><div class="tline"><span class="dim">yap --watch:</span> <span class="mut">copy text to speak; Ctrl-C to quit</span></div></div>
+        </div>
+        <p>Monitors the clipboard and speaks whatever you copy. Copying again while it's talking cancels the current playback and starts on the new selection.</p>
+      </div>
+
+      <div class="usage-item">
+        <div class="term">
+          <div class="term-bar">
+            <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+            <span class="term-title">options</span>
+          </div>
+          <div class="term-body"><div class="tline"><span class="ps1">$</span> <span class="cmd">yap <span class="flag">--voice</span> af_heart <span class="flag">--speed</span> 1.1 <span class="flag">--lang</span> en-us</span></div><div class="tline"><span class="ps1">$</span> <span class="cmd">yap <span class="flag">--list-voices</span></span></div><div class="tline"><span class="mut">af_heart</span></div><div class="tline"><span class="mut">af_nova</span></div><div class="tline"><span class="mut">am_adam</span></div><div class="tline"><span class="dim">…</span></div><div class="tline"><span class="ps1">$</span> <span class="cmd">yap <span class="flag">--save</span> out.wav</span> <span class="cm"># or out.mp3</span></div><div class="tline"><span class="mut">saved</span> <span class="amber">out.wav</span></div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th>flag</th><th>default</th><th>description</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>--voice</code></td><td class="def">af_heart</td><td>Voice name</td></tr>
+          <tr><td><code>--speed</code></td><td class="def">1.0</td><td>Speech rate</td></tr>
+          <tr><td><code>--lang</code></td><td class="def">en-us</td><td>Language code</td></tr>
+          <tr><td><code>--watch</code></td><td class="def">—</td><td>Speak on every clipboard change</td></tr>
+          <tr><td><code>--save PATH</code></td><td class="def">—</td><td>Write audio to <code>.wav</code> or <code>.mp3</code> instead of playing</td></tr>
+          <tr><td><code>--list-voices</code></td><td class="def">—</td><td>Print voices and exit</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="usage-item" style="margin-top: 28px;">
+        <div class="term">
+          <div class="term-bar">
+            <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+            <span class="term-title">update</span>
+          </div>
+          <div class="term-body"><div class="tline"><span class="ps1">$</span> <span class="cmd">yap update</span></div></div>
+        </div>
+        <p>Re-runs the installer to fetch the latest release, replacing the binary in the directory it's currently installed in.</p>
+    </div>
+  </div>
+</section>
+
+<section id="hotkey">
+  <div class="wrap">
+    <h2><span class="ps1">$</span>global hotkey</h2>
+    <p class="sub">yap is a one-shot CLI, so binding a system-wide hotkey is best handled outside the binary. Two good options:</p>
+
+    <div class="hotkey-grid">
+      <div class="hotkey-card">
+        <h3>macOS Shortcuts<span class="dim">built-in</span></h3>
+        <p>Bind <code>yap</code> to a keyboard shortcut with the Shortcuts app.</p>
+        <ol>
+          <li>Open <b>Shortcuts.app</b> and create a new shortcut named <b>Yap Clipboard</b>.</li>
+          <li>Add the <b>Run Shell Script</b> action with <code>/usr/local/bin/yap</code> (or <code>~/.local/bin/yap</code> — use the full path, Shortcuts doesn't inherit your shell's <code>PATH</code>).</li>
+          <li>In the shortcut's info panel (<kbd>⌘I</kbd>), set a <b>Keyboard Shortcut</b> — e.g. <kbd>⌃⌥⌘Y</kbd>.</li>
+        </ol>
+        <p class="hotkey-note">Running the shortcut a second time won't stop playback — it spawns another instance. To stop, focus the terminal and hit <code>Ctrl-C</code>, or wire up a second shortcut that runs <code>killall yap</code>.</p>
+      </div>
+
+      <div class="hotkey-card">
+        <h3>Raycast<span class="dim">script command</span></h3>
+        <p>A ready-to-use script lives at <code>extras/raycast/yap.sh</code> — it auto-detects where yap is installed.</p>
+        <ol>
+          <li>In Raycast settings → <b>Extensions</b> → <b>Script Commands</b>, note your <b>Script Directories</b> path.</li>
+          <li>Drop the script into that directory:</li>
+        </ol>
+        <div class="term">
+          <div class="term-bar">
+            <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+            <span class="spacer"></span>
+            <button class="copy-btn" data-copy="mkdir -p ~/.raycast-scripts&#10;curl -fsSL https://raw.githubusercontent.com/jonstuebe/yap/main/extras/raycast/yap.sh -o ~/.raycast-scripts/yap.sh&#10;chmod +x ~/.raycast-scripts/yap.sh" aria-label="Copy Raycast setup commands">copy</button>
+          </div>
+          <div class="term-body"><div class="tline"><span class="ps1">$</span> <span class="cmd">mkdir -p ~/.raycast-scripts</span></div><div class="tline"><span class="ps1">$</span> <span class="cmd">curl -fsSL https://raw.githubusercontent.com/jonstuebe/yap/main/extras/raycast/yap.sh \</span></div><div class="tline"><span class="cmd">  -o ~/.raycast-scripts/yap.sh</span></div><div class="tline"><span class="ps1">$</span> <span class="cmd">chmod +x ~/.raycast-scripts/yap.sh</span></div></div>
+        </div>
+        <ol style="counter-reset: step 2;">
+          <li>Back in <b>Extensions</b>, find <b>Yap Clipboard</b> and assign a <b>Hotkey</b>.</li>
+        </ol>
+        <p class="hotkey-note">Edit the <code>@raycast.mode</code> line from <code>silent</code> to <code>compact</code> if you want a HUD while it's speaking.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="how">
+  <div class="wrap">
+    <h2><span class="ps1">$</span>how it works</h2>
+    <p class="sub">Clipboard to audio in three steps, streaming the whole way.</p>
+
+    <div class="steps">
+      <div class="step">
+        <span class="num">01</span>
+        <h3>read</h3>
+        <p>Grabs the clipboard via <code>arboard</code>, with a <code>pbpaste</code> fallback.</p>
+      </div>
+      <div class="step">
+        <span class="num">02</span>
+        <h3>split</h3>
+        <p>Splits text on sentence boundaries, hard-cutting any sentence over 400 chars to stay under Kokoro's ~510-token ceiling.</p>
+      </div>
+      <div class="step">
+        <span class="num">03</span>
+        <h3>speak</h3>
+        <p>A producer thread synthesizes each chunk into f32 samples via <code>Kokoros</code> (ONNX Runtime + espeak-ng, both static-linked) while the main thread plays them in order through <code>rodio</code>. A bounded channel keeps the producer 1–2 chunks ahead.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="top">
+      <div class="brand">
+        <a class="logo" href="#top">yap<span class="cursor">▊</span></a>
+        <p><code>pbpaste</code>, but it talks. Reads your macOS clipboard aloud using Kokoro TTS. Apple Silicon macOS only — one self-contained binary, no Python, no separate ONNX Runtime.</p>
+      </div>
+      <div class="links">
+        <a href="https://github.com/jonstuebe/yap">github ↗</a>
+        <a href="https://github.com/jonstuebe/yap/releases">releases ↗</a>
+        <a href="https://github.com/thewh1teagle/kokoro-onnx">kokoro-onnx ↗</a>
+        <a href="https://github.com/lucasjinreal/Kokoros">kokoros ↗</a>
+      </div>
+    </div>
+    <div class="bottom">
+      <span><span class="ok">●</span> Apple Silicon macOS</span>
+      <span>GPL-3.0-or-later (transitive from espeak-ng)</span>
+      <span>built with Rust 🦀</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ── Copy buttons ─────────────────────────────── */
+  document.querySelectorAll('.copy-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var text = btn.getAttribute('data-copy');
+      function done() {
+        btn.classList.add('copied');
+        btn.textContent = 'copied ✓';
+        setTimeout(function () {
+          btn.classList.remove('copied');
+          btn.textContent = 'copy';
+        }, 1600);
+      }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done, function () { fallback(); done(); });
+      } else {
+        fallback(); done();
+      }
+      function fallback() {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); } catch (e) {}
+        ta.remove();
+      }
+    });
+  });
+
+  /* ── Hero terminal animation ──────────────────── */
+  var body = document.getElementById('heroBody');
+  if (!body) return;
+
+  var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var PROMPT = '<span class="ps1">$</span> ';
+
+  function line(html) {
+    var d = document.createElement('div');
+    d.className = 'tline';
+    d.innerHTML = html;
+    return d;
+  }
+
+  function waveEl() {
+    var w = document.createElement('div');
+    w.className = 'wave';
+    w.setAttribute('aria-hidden', 'true');
+    for (var i = 0; i < 30; i++) w.appendChild(document.createElement('i'));
+    return w;
+  }
+
+  var scenes = [
+    {
+      cmd: 'yap',
+      out: [
+        { html: '<span class="ok">✓</span> <span class="mut">synthesizing first of 2 chunk(s)</span> <span class="dim">0.8s</span>', delay: 550 },
+        { wave: 2400 }
+      ]
+    },
+    {
+      cmd: 'yap --watch',
+      out: [
+        { html: '<span class="dim">yap --watch:</span> <span class="mut">copy text to speak; Ctrl-C to quit</span>', delay: 450 },
+        { wave: 2800 }
+      ]
+    },
+    {
+      cmd: 'yap --voice af_heart --speed 1.1 --save out.wav',
+      out: [
+        { html: '<span class="ok">✓</span> <span class="mut">synthesizing first of 2 chunk(s)</span> <span class="dim">0.6s</span>', delay: 550 },
+        { html: '<span class="mut">saved</span> <span class="amber">out.wav</span>', delay: 900 }
+      ]
+    }
+  ];
+
+  function wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+  function typeCmd(cmd) {
+    var l = line(PROMPT + '<span class="cmd"></span><span class="cursor">▊</span>');
+    body.appendChild(l);
+    var span = l.querySelector('.cmd');
+    var i = 0;
+    function step() {
+      if (i < cmd.length) {
+        span.textContent += cmd[i++];
+        return wait(30 + Math.random() * 55).then(step);
+      }
+      return wait(320).then(function () {
+        var c = l.querySelector('.cursor');
+        if (c) c.remove();
+      });
+    }
+    return step();
+  }
+
+  function runScene(scene) {
+    var chain = typeCmd(scene.cmd);
+    scene.out.forEach(function (step) {
+      chain = chain.then(function () {
+        if (step.wave) {
+          var w = waveEl();
+          body.appendChild(w);
+          return wait(step.wave).then(function () { w.remove(); });
+        }
+        return wait(step.delay || 400).then(function () {
+          body.appendChild(line(step.html));
+        });
+      });
+    });
+    return chain.then(function () { return wait(1800); });
+  }
+
+  if (reduced) {
+    body.appendChild(line(PROMPT + '<span class="cmd">yap</span>'));
+    body.appendChild(line('<span class="ok">✓</span> <span class="mut">synthesizing first of 2 chunk(s)</span> <span class="dim">0.8s</span>'));
+    body.appendChild(line(PROMPT + '<span class="cursor">▊</span>'));
+    return;
+  }
+
+  (function loop() {
+    body.innerHTML = '';
+    var chain = Promise.resolve();
+    scenes.forEach(function (scene) {
+      chain = chain.then(function () { return runScene(scene); });
+    });
+    chain.then(function () { return wait(700); }).then(loop);
+  })();
+})();
+</script>
+</body>
+</html>

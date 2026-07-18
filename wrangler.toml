@@ -1,0 +1,9 @@
+name = "yap"
+compatibility_date = "2026-07-18"
+
+routes = [
+  { pattern = "yap.jonstuebe.com", custom_domain = true },
+]
+
+[assets]
+directory = "./docs"
